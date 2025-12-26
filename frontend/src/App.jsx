@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
 import CesiumMap from "./cesium/CesiumMap";
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-if (!API_BASE) {
-  throw new Error("VITE_API_BASE_URL is missing");
-}
+import { API_BASE } from "./config/api";
 
 function App() {
   const [fusionData, setFusionData] = useState(null);
@@ -17,15 +12,10 @@ function App() {
       const res = await fetch(
         `${API_BASE}/api/fusion/predict?lat=${lat}&lon=${lon}`
       );
-
-      if (!res.ok) {
-        throw new Error("API request failed");
-      }
-
       const data = await res.json();
       setFusionData(data);
     } catch (err) {
-      console.error("Fusion fetch error:", err);
+      console.error("Fusion fetch failed", err);
     }
   };
 

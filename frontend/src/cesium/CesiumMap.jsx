@@ -1,30 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import * as Cesium from "cesium";
 
 window.CESIUM_BASE_URL = "/cesium";
 
-/**
- * 🚨 DO NOT allow localhost fallback in production
- */
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
-
-if (!API_BASE) {
-  throw new Error("❌ VITE_API_BASE_URL is not defined");
-}
-
-export default function CesiumMap() {
+export default function CesiumMap({ fusionData }) {
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
-
-  const sensorEntities = useRef([]);
-  const ringEntities = useRef([]);
-  const fusedEntity = useRef(null);
-
-  const [layers, setLayers] = useState({
-    sensors: true,
-    rings: true,
-    fused: true,
-  });
 
   useEffect(() => {
     const viewer = new Cesium.Viewer(containerRef.current, {
@@ -34,154 +15,46 @@ export default function CesiumMap() {
     });
 
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(114.2106, 22.418, 2500),
+      destination: Cesium.Cartesian3.fromDegrees(
+        fusionData.center.lon,
+        fusionData.center.lat,
+        2500
+      ),
+    });
+
+    // Sensors
+    fusionData.sensors.forEach((s) => {
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
+        point: { pixelSize: 10, color: Cesium.Color.RED },
+        label: {
+          text: `${s.name}\n${s.temp.toFixed(1)} °C`,
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+        },
+      });
+    });
+
+    // Fused label
+    viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(
+        fusionData.center.lon,
+        fusionData.center.lat
+      ),
+      label: {
+        text:
+          `Fused: ${fusionData.fusedTemp} °C\n` +
+          `Sensor Avg: ${fusionData.sensorAvgTemp} °C\n` +
+          `HKO: ${fusionData.hkoRefTemp} °C\n` +
+          `+30 min: ${fusionData.forecast30Min} °C\n` +
+          `Traffic: ${fusionData.trafficCongestion}`,
+        showBackground: true,
+      },
     });
 
     viewerRef.current = viewer;
 
-    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((click) => {
-      const pos = viewer.scene.pickPosition(click.position);
-      if (!pos) return;
+    return () => viewer.destroy();
+  }, [fusionData]);
 
-      const carto = Cesium.Cartographic.fromCartesian(pos);
-      const lat = Cesium.Math.toDegrees(carto.latitude);
-      const lon = Cesium.Math.toDegrees(carto.longitude);
-
-      loadFusion(lat, lon);
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-    return () => {
-      handler.destroy();
-      viewer.destroy();
-    };
-  }, []);
-
-  async function loadFusion(lat, lon) {
-    const viewer = viewerRef.current;
-
-    const res = await fetch(
-      `${API_BASE}/api/fusion/predict?lat=${lat}&lon=${lon}`
-    );
-
-    const data = await res.json();
-
-    // Clear old entities
-    [...sensorEntities.current, ...ringEntities.current].forEach((e) =>
-      viewer.entities.remove(e)
-    );
-    if (fusedEntity.current)
-      viewer.entities.remove(fusedEntity.current);
-
-    sensorEntities.current = [];
-    ringEntities.current = [];
-
-    // Sensors
-    data.sensors.forEach((s) => {
-      const e = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
-        point: { pixelSize: 10, color: Cesium.Color.RED },
-        label: {
-          text: `Sensor ${s.id}\n${s.temp.toFixed(1)} °C`,
-          font: "14px sans-serif",
-          fillColor: Cesium.Color.RED,
-          pixelOffset: new Cesium.Cartesian2(0, -25),
-          show: layers.sensors,
-        },
-      });
-      sensorEntities.current.push(e);
-    });
-
-    // Rings
-    [800, 1500].forEach((r) => {
-      ringEntities.current.push(
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(lon, lat),
-          ellipse: {
-            semiMajorAxis: r,
-            semiMinorAxis: r,
-            material: Cesium.Color.YELLOW.withAlpha(0.15),
-            show: layers.rings,
-          },
-        })
-      );
-    });
-
-    // Fused label
-    fusedEntity.current = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lon, lat),
-      label: {
-        text:
-          `CSDI Heritage Digital Twin\n` +
-          `Fused: ${data.fusedTemp} °C\n` +
-          `Sensor Avg: ${data.sensorAvgTemp} °C\n` +
-          `HKO Ref: ${data.hkoRefTemp} °C\n` +
-          `+30 min: ${data.forecast30Min} °C\n` +
-          `Traffic (10km): ${data.trafficCongestion}`,
-        font: "15px sans-serif",
-        fillColor: Cesium.Color.CYAN,
-        showBackground: true,
-        backgroundColor: Cesium.Color.BLACK.withAlpha(0.7),
-        pixelOffset: new Cesium.Cartesian2(0, -10),
-        show: layers.fused,
-      },
-    });
-  }
-
-  return (
-    <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          zIndex: 5,
-          background: "rgba(0,0,0,0.7)",
-          color: "#fff",
-          padding: 10,
-          borderRadius: 6,
-        }}
-      >
-        <b>CSDI Layers</b>
-        <br />
-        <label>
-          <input
-            type="checkbox"
-            checked={layers.sensors}
-            onChange={(e) =>
-              setLayers({ ...layers, sensors: e.target.checked })
-            }
-          />
-          Sensors
-        </label>
-        <br />
-        <label>
-          <input
-            type="checkbox"
-            checked={layers.rings}
-            onChange={(e) =>
-              setLayers({ ...layers, rings: e.target.checked })
-            }
-          />
-          Forecast / Traffic Rings
-        </label>
-        <br />
-        <label>
-          <input
-            type="checkbox"
-            checked={layers.fused}
-            onChange={(e) =>
-              setLayers({ ...layers, fused: e.target.checked })
-            }
-          />
-          Fused Label
-        </label>
-        <div style={{ fontSize: 12, marginTop: 6 }}>
-          Click anywhere on map
-        </div>
-      </div>
-
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
-    </div>
-  );
+  return <div ref={containerRef} style={{ width: "100vw", height: "100vh" }} />;
 }
