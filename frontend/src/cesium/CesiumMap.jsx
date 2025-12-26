@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import * as Cesium from "cesium";
 
+// Cesium static assets path
 window.CESIUM_BASE_URL = "/cesium";
 
-// 🔗 Backend API (local + production safe)
-const API =
-  import.meta.env.VITE_API_BASE_URL ||
-  "https://csdi-heritage-digital-twin-1.onrender.com";
+// API base URL (from Vercel env)
+const API = import.meta.env.VITE_API_BASE_URL;
 
 export default function CesiumMap() {
   const containerRef = useRef(null);
@@ -22,20 +21,16 @@ export default function CesiumMap() {
     fused: true,
   });
 
-  // ---------- INIT VIEWER ----------
   useEffect(() => {
-    if (!containerRef.current) return;
-
     const viewer = new Cesium.Viewer(containerRef.current, {
       timeline: false,
       animation: false,
-      geocoder: false,
-      homeButton: true,
       baseLayerPicker: true,
+      geocoder: true,
+      homeButton: true,
       sceneModePicker: true,
       navigationHelpButton: true,
       fullscreenButton: true,
-      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
     });
 
     viewer.camera.flyTo({
@@ -44,17 +39,17 @@ export default function CesiumMap() {
 
     viewerRef.current = viewer;
 
-    // CLICK HANDLER
+    // Click handler
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((click) => {
+    handler.setInputAction(async (click) => {
       const pos = viewer.scene.pickPosition(click.position);
-      if (!Cesium.defined(pos)) return;
+      if (!pos) return;
 
       const carto = Cesium.Cartographic.fromCartesian(pos);
       const lat = Cesium.Math.toDegrees(carto.latitude);
       const lon = Cesium.Math.toDegrees(carto.longitude);
 
-      loadFusion(lat, lon);
+      await loadFusion(lat, lon);
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     return () => {
@@ -63,7 +58,6 @@ export default function CesiumMap() {
     };
   }, []);
 
-  // ---------- LOAD & DRAW DATA ----------
   async function loadFusion(lat, lon) {
     const viewer = viewerRef.current;
     if (!viewer) return;
@@ -71,25 +65,27 @@ export default function CesiumMap() {
     const res = await fetch(
       `${API}/api/fusion/predict?lat=${lat}&lon=${lon}`
     );
+
     const data = await res.json();
 
-    // Clear old entities
+    // Clear previous entities
     [...sensorEntities.current, ...ringEntities.current].forEach((e) =>
       viewer.entities.remove(e)
     );
-    if (fusedEntity.current) viewer.entities.remove(fusedEntity.current);
+    if (fusedEntity.current) {
+      viewer.entities.remove(fusedEntity.current);
+    }
 
     sensorEntities.current = [];
     ringEntities.current = [];
 
-    // Sensors
+    // Sensor points
     data.sensors.forEach((s) => {
       const e = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
         point: {
           pixelSize: 10,
           color: Cesium.Color.RED,
-          show: layers.sensors,
         },
         label: {
           text: `Sensor ${s.id}\n${s.temp.toFixed(1)} °C`,
@@ -98,11 +94,12 @@ export default function CesiumMap() {
           pixelOffset: new Cesium.Cartesian2(0, -25),
           show: layers.sensors,
         },
+        show: layers.sensors,
       });
       sensorEntities.current.push(e);
     });
 
-    // Forecast / Traffic Rings
+    // Rings
     [800, 1500].forEach((r) => {
       const ring = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
@@ -116,18 +113,17 @@ export default function CesiumMap() {
       ringEntities.current.push(ring);
     });
 
-    // Fused Label
+    // Fused label
     fusedEntity.current = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(lon, lat),
       label: {
         text:
           `CSDI Heritage Digital Twin\n` +
-          `Fused Now: ${data.fusedTemp} °C\n` +
+          `Fused: ${data.fusedTemp} °C\n` +
           `Sensor Avg: ${data.sensorAvgTemp} °C\n` +
           `HKO Ref: ${data.hkoRefTemp} °C\n` +
           `+30 min: ${data.forecast30Min} °C\n` +
-          `Traffic (10km): ${data.trafficCongestion}\n` +
-          `Updated: ${new Date(data.timestamp).toLocaleTimeString()}`,
+          `Traffic (10km): ${data.trafficCongestion}`,
         font: "15px sans-serif",
         fillColor: Cesium.Color.CYAN,
         showBackground: true,
@@ -138,36 +134,20 @@ export default function CesiumMap() {
     });
   }
 
-  // ---------- LAYER TOGGLES ----------
-  useEffect(() => {
-    sensorEntities.current.forEach((e) => {
-      if (e.point) e.point.show = layers.sensors;
-      if (e.label) e.label.show = layers.sensors;
-    });
-
-    ringEntities.current.forEach((e) => {
-      if (e.ellipse) e.ellipse.show = layers.rings;
-    });
-
-    if (fusedEntity.current?.label) {
-      fusedEntity.current.label.show = layers.fused;
-    }
-  }, [layers]);
-
-  // ---------- UI ----------
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
+      {/* Layer Controls */}
       <div
         style={{
           position: "absolute",
           top: 10,
           left: 10,
-          zIndex: 10,
+          zIndex: 5,
           background: "rgba(0,0,0,0.7)",
           color: "#fff",
           padding: 10,
           borderRadius: 6,
-          fontFamily: "sans-serif",
+          fontSize: 14,
         }}
       >
         <b>CSDI Layers</b>
@@ -183,6 +163,7 @@ export default function CesiumMap() {
           />{" "}
           Sensors
         </label>
+
         <br />
 
         <label>
@@ -195,6 +176,7 @@ export default function CesiumMap() {
           />{" "}
           Forecast / Traffic Rings
         </label>
+
         <br />
 
         <label>
@@ -213,6 +195,7 @@ export default function CesiumMap() {
         </div>
       </div>
 
+      {/* Cesium Container */}
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
