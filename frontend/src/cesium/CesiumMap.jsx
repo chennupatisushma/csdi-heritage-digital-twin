@@ -56,8 +56,9 @@ export default function CesiumMap() {
     const viewer = viewerRef.current;
 
     const res = await fetch(
-      `${API}/api/fusion/predict?lat=${lat}&lon=${lon}`
-    );
+  `https://csdi-heritage-digital-twin-1.onrender.com/api/fusion/predict?lat=${lat}&lon=${lon}`
+);
+
     const data = await res.json();
 
     // Clear old
