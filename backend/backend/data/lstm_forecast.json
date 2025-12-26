@@ -1,0 +1,5 @@
+{
+  "model": "LSTM-demo",
+  "predictedTemp": 24.8,
+  "horizon": "30 min"
+}
