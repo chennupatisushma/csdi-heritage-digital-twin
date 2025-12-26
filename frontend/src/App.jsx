@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import CesiumMap from "./cesium/CesiumMap";
 import { API_BASE } from "./config";
 
-
 function App() {
   const [fusionData, setFusionData] = useState(null);
   const [lat, setLat] = useState(22.337);
@@ -13,7 +12,6 @@ function App() {
       const res = await fetch(
         `${API_BASE}/api/fusion/predict?lat=${latVal}&lon=${lonVal}`
       );
-      if (!res.ok) throw new Error("API failed");
       const data = await res.json();
       setFusionData(data);
     } catch (err) {
@@ -43,8 +41,7 @@ function App() {
           Latitude:
           <input
             value={lat}
-            onChange={(e) => setLat(Number(e.target.value))}
-            style={{ marginLeft: 5 }}
+            onChange={(e) => setLat(e.target.value)}
           />
         </label>
 
@@ -52,8 +49,7 @@ function App() {
           Longitude:
           <input
             value={lon}
-            onChange={(e) => setLon(Number(e.target.value))}
-            style={{ marginLeft: 5 }}
+            onChange={(e) => setLon(e.target.value)}
           />
         </label>
 
@@ -62,7 +58,7 @@ function App() {
         </button>
       </div>
 
-      {/* FULLSCREEN MAP */}
+      {/* FULLSCREEN CESIUM */}
       <CesiumMap fusionData={fusionData} onMapClick={fetchFusion} />
     </div>
   );

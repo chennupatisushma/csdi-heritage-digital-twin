@@ -1,27 +1,33 @@
 import { useEffect, useRef } from "react";
 import * as Cesium from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
 
-function CesiumMap({ fusionData, onMapClick }) {
+/* ✅ TOKEN MUST BE SET BEFORE VIEWER */
+Cesium.Ion.defaultAccessToken =
+  import.meta.env.VITE_CESIUM_TOKEN;
+
+window.CESIUM_BASE_URL = "/cesium";
+
+export default function CesiumMap({ fusionData, onMapClick }) {
   const containerRef = useRef(null);
+  const viewerRef = useRef(null);
 
   useEffect(() => {
     const viewer = new Cesium.Viewer(containerRef.current, {
       timeline: false,
       animation: false,
-      fullscreenButton: true,
       baseLayerPicker: true,
-      geocoder: false,
-      homeButton: true,
-      sceneModePicker: true,
     });
 
-    // Camera start
-    viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(114.172, 22.337, 800),
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        114.2106,
+        22.418,
+        2500
+      ),
     });
 
-    // CLICK HANDLER (THIS FIXES YOUR ISSUE)
+    viewerRef.current = viewer;
+
     const handler = new Cesium.ScreenSpaceEventHandler(
       viewer.scene.canvas
     );
@@ -37,54 +43,50 @@ function CesiumMap({ fusionData, onMapClick }) {
       onMapClick(lat, lon);
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-    // Render fusion overlay
-    if (fusionData) {
-      viewer.entities.removeAll();
-
-      viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(
-          fusionData.lon,
-          fusionData.lat
-        ),
-        label: {
-          text: `
-Fused: ${fusionData.fused.toFixed(2)} °C
-Sensor Avg: ${fusionData.sensorAvg.toFixed(2)} °C
-HKO: ${fusionData.hko.toFixed(2)} °C
-+30 min: ${fusionData.forecast30.toFixed(2)} °C
-Traffic: ${fusionData.traffic.toFixed(2)}
-          `,
-          font: "14px sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          showBackground: true,
-          backgroundColor: Cesium.Color.BLACK.withAlpha(0.7),
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        },
-        point: {
-          pixelSize: 10,
-          color: Cesium.Color.RED,
-        },
-      });
-    }
-
     return () => {
       handler.destroy();
       viewer.destroy();
     };
+  }, []);
+
+  useEffect(() => {
+    if (!fusionData || !viewerRef.current) return;
+
+    const viewer = viewerRef.current;
+    viewer.entities.removeAll();
+
+    fusionData.sensors.forEach((s) => {
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
+        point: { pixelSize: 10, color: Cesium.Color.RED },
+        label: {
+          text: `Sensor ${s.id}\n${s.temp.toFixed(1)} °C`,
+          pixelOffset: new Cesium.Cartesian2(0, -25),
+        },
+      });
+    });
+
+    viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(
+        fusionData.center.lon,
+        fusionData.center.lat
+      ),
+      label: {
+        text:
+          `Fused: ${fusionData.fusedTemp} °C\n` +
+          `Avg: ${fusionData.sensorAvgTemp} °C\n` +
+          `HKO: ${fusionData.hkoRefTemp} °C\n` +
+          `+30 min: ${fusionData.forecast30Min} °C\n` +
+          `Traffic: ${fusionData.trafficCongestion}`,
+        showBackground: true,
+      },
+    });
   }, [fusionData]);
 
   return (
     <div
       ref={containerRef}
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        width: "100vw",
-        height: "100vh",
-      }}
+      style={{ width: "100vw", height: "100vh" }}
     />
   );
 }
-
-export default CesiumMap;
