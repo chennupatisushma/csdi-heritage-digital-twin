@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import CesiumMap from "./cesium/CesiumMap";
-import { API_BASE } from "./config/api";
+import { API_BASE } from "./config";
 
 
 function App() {
