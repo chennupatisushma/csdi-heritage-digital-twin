@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import * as Cesium from "cesium";
 
-// Cesium static assets path
 window.CESIUM_BASE_URL = "/cesium";
 
-// API base URL (from Vercel env)
-const API = import.meta.env.VITE_API_BASE_URL;
+/**
+ * 🚨 DO NOT allow localhost fallback in production
+ */
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+if (!API_BASE) {
+  throw new Error("❌ VITE_API_BASE_URL is not defined");
+}
 
 export default function CesiumMap() {
   const containerRef = useRef(null);
@@ -26,11 +31,6 @@ export default function CesiumMap() {
       timeline: false,
       animation: false,
       baseLayerPicker: true,
-      geocoder: true,
-      homeButton: true,
-      sceneModePicker: true,
-      navigationHelpButton: true,
-      fullscreenButton: true,
     });
 
     viewer.camera.flyTo({
@@ -39,9 +39,8 @@ export default function CesiumMap() {
 
     viewerRef.current = viewer;
 
-    // Click handler
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction(async (click) => {
+    handler.setInputAction((click) => {
       const pos = viewer.scene.pickPosition(click.position);
       if (!pos) return;
 
@@ -49,7 +48,7 @@ export default function CesiumMap() {
       const lat = Cesium.Math.toDegrees(carto.latitude);
       const lon = Cesium.Math.toDegrees(carto.longitude);
 
-      await loadFusion(lat, lon);
+      loadFusion(lat, lon);
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     return () => {
@@ -60,33 +59,28 @@ export default function CesiumMap() {
 
   async function loadFusion(lat, lon) {
     const viewer = viewerRef.current;
-    if (!viewer) return;
 
     const res = await fetch(
-      `${API}/api/fusion/predict?lat=${lat}&lon=${lon}`
+      `${API_BASE}/api/fusion/predict?lat=${lat}&lon=${lon}`
     );
 
     const data = await res.json();
 
-    // Clear previous entities
+    // Clear old entities
     [...sensorEntities.current, ...ringEntities.current].forEach((e) =>
       viewer.entities.remove(e)
     );
-    if (fusedEntity.current) {
+    if (fusedEntity.current)
       viewer.entities.remove(fusedEntity.current);
-    }
 
     sensorEntities.current = [];
     ringEntities.current = [];
 
-    // Sensor points
+    // Sensors
     data.sensors.forEach((s) => {
       const e = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
-        point: {
-          pixelSize: 10,
-          color: Cesium.Color.RED,
-        },
+        point: { pixelSize: 10, color: Cesium.Color.RED },
         label: {
           text: `Sensor ${s.id}\n${s.temp.toFixed(1)} °C`,
           font: "14px sans-serif",
@@ -94,23 +88,23 @@ export default function CesiumMap() {
           pixelOffset: new Cesium.Cartesian2(0, -25),
           show: layers.sensors,
         },
-        show: layers.sensors,
       });
       sensorEntities.current.push(e);
     });
 
     // Rings
     [800, 1500].forEach((r) => {
-      const ring = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        ellipse: {
-          semiMajorAxis: r,
-          semiMinorAxis: r,
-          material: Cesium.Color.YELLOW.withAlpha(0.15),
-          show: layers.rings,
-        },
-      });
-      ringEntities.current.push(ring);
+      ringEntities.current.push(
+        viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat),
+          ellipse: {
+            semiMajorAxis: r,
+            semiMinorAxis: r,
+            material: Cesium.Color.YELLOW.withAlpha(0.15),
+            show: layers.rings,
+          },
+        })
+      );
     });
 
     // Fused label
@@ -136,7 +130,6 @@ export default function CesiumMap() {
 
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
-      {/* Layer Controls */}
       <div
         style={{
           position: "absolute",
@@ -147,12 +140,10 @@ export default function CesiumMap() {
           color: "#fff",
           padding: 10,
           borderRadius: 6,
-          fontSize: 14,
         }}
       >
         <b>CSDI Layers</b>
         <br />
-
         <label>
           <input
             type="checkbox"
@@ -160,12 +151,10 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, sensors: e.target.checked })
             }
-          />{" "}
+          />
           Sensors
         </label>
-
         <br />
-
         <label>
           <input
             type="checkbox"
@@ -173,12 +162,10 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, rings: e.target.checked })
             }
-          />{" "}
+          />
           Forecast / Traffic Rings
         </label>
-
         <br />
-
         <label>
           <input
             type="checkbox"
@@ -186,16 +173,14 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, fused: e.target.checked })
             }
-          />{" "}
+          />
           Fused Label
         </label>
-
         <div style={{ fontSize: 12, marginTop: 6 }}>
           Click anywhere on map
         </div>
       </div>
 
-      {/* Cesium Container */}
       <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
