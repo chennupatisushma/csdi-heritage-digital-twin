@@ -3,8 +3,10 @@ import * as Cesium from "cesium";
 
 window.CESIUM_BASE_URL = "/cesium";
 
+// 🔗 Backend API (local + production safe)
 const API =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:4000";
+  import.meta.env.VITE_API_BASE_URL ||
+  "https://csdi-heritage-digital-twin-1.onrender.com";
 
 export default function CesiumMap() {
   const containerRef = useRef(null);
@@ -20,11 +22,20 @@ export default function CesiumMap() {
     fused: true,
   });
 
+  // ---------- INIT VIEWER ----------
   useEffect(() => {
+    if (!containerRef.current) return;
+
     const viewer = new Cesium.Viewer(containerRef.current, {
       timeline: false,
       animation: false,
+      geocoder: false,
+      homeButton: true,
       baseLayerPicker: true,
+      sceneModePicker: true,
+      navigationHelpButton: true,
+      fullscreenButton: true,
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
     });
 
     viewer.camera.flyTo({
@@ -35,9 +46,9 @@ export default function CesiumMap() {
 
     // CLICK HANDLER
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction(async (click) => {
+    handler.setInputAction((click) => {
       const pos = viewer.scene.pickPosition(click.position);
-      if (!pos) return;
+      if (!Cesium.defined(pos)) return;
 
       const carto = Cesium.Cartographic.fromCartesian(pos);
       const lat = Cesium.Math.toDegrees(carto.latitude);
@@ -52,21 +63,21 @@ export default function CesiumMap() {
     };
   }, []);
 
+  // ---------- LOAD & DRAW DATA ----------
   async function loadFusion(lat, lon) {
     const viewer = viewerRef.current;
+    if (!viewer) return;
 
     const res = await fetch(
-  `https://csdi-heritage-digital-twin-1.onrender.com/api/fusion/predict?lat=${lat}&lon=${lon}`
-);
-
+      `${API}/api/fusion/predict?lat=${lat}&lon=${lon}`
+    );
     const data = await res.json();
 
-    // Clear old
+    // Clear old entities
     [...sensorEntities.current, ...ringEntities.current].forEach((e) =>
       viewer.entities.remove(e)
     );
-    if (fusedEntity.current)
-      viewer.entities.remove(fusedEntity.current);
+    if (fusedEntity.current) viewer.entities.remove(fusedEntity.current);
 
     sensorEntities.current = [];
     ringEntities.current = [];
@@ -75,7 +86,11 @@ export default function CesiumMap() {
     data.sensors.forEach((s) => {
       const e = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(s.lon, s.lat),
-        point: { pixelSize: 10, color: Cesium.Color.RED },
+        point: {
+          pixelSize: 10,
+          color: Cesium.Color.RED,
+          show: layers.sensors,
+        },
         label: {
           text: `Sensor ${s.id}\n${s.temp.toFixed(1)} °C`,
           font: "14px sans-serif",
@@ -87,32 +102,32 @@ export default function CesiumMap() {
       sensorEntities.current.push(e);
     });
 
-    // Rings
+    // Forecast / Traffic Rings
     [800, 1500].forEach((r) => {
-      ringEntities.current.push(
-        viewer.entities.add({
-          position: Cesium.Cartesian3.fromDegrees(lon, lat),
-          ellipse: {
-            semiMajorAxis: r,
-            semiMinorAxis: r,
-            material: Cesium.Color.YELLOW.withAlpha(0.15),
-            show: layers.rings,
-          },
-        })
-      );
+      const ring = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        ellipse: {
+          semiMajorAxis: r,
+          semiMinorAxis: r,
+          material: Cesium.Color.YELLOW.withAlpha(0.15),
+          show: layers.rings,
+        },
+      });
+      ringEntities.current.push(ring);
     });
 
-    // Fused label
+    // Fused Label
     fusedEntity.current = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(lon, lat),
       label: {
         text:
           `CSDI Heritage Digital Twin\n` +
-          `Fused: ${data.fusedTemp} °C\n` +
+          `Fused Now: ${data.fusedTemp} °C\n` +
           `Sensor Avg: ${data.sensorAvgTemp} °C\n` +
           `HKO Ref: ${data.hkoRefTemp} °C\n` +
           `+30 min: ${data.forecast30Min} °C\n` +
-          `Traffic (10km): ${data.trafficCongestion}`,
+          `Traffic (10km): ${data.trafficCongestion}\n` +
+          `Updated: ${new Date(data.timestamp).toLocaleTimeString()}`,
         font: "15px sans-serif",
         fillColor: Cesium.Color.CYAN,
         showBackground: true,
@@ -123,6 +138,23 @@ export default function CesiumMap() {
     });
   }
 
+  // ---------- LAYER TOGGLES ----------
+  useEffect(() => {
+    sensorEntities.current.forEach((e) => {
+      if (e.point) e.point.show = layers.sensors;
+      if (e.label) e.label.show = layers.sensors;
+    });
+
+    ringEntities.current.forEach((e) => {
+      if (e.ellipse) e.ellipse.show = layers.rings;
+    });
+
+    if (fusedEntity.current?.label) {
+      fusedEntity.current.label.show = layers.fused;
+    }
+  }, [layers]);
+
+  // ---------- UI ----------
   return (
     <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
       <div
@@ -130,14 +162,17 @@ export default function CesiumMap() {
           position: "absolute",
           top: 10,
           left: 10,
-          zIndex: 5,
+          zIndex: 10,
           background: "rgba(0,0,0,0.7)",
           color: "#fff",
           padding: 10,
           borderRadius: 6,
+          fontFamily: "sans-serif",
         }}
       >
         <b>CSDI Layers</b>
+        <br />
+
         <label>
           <input
             type="checkbox"
@@ -145,10 +180,11 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, sensors: e.target.checked })
             }
-          />
+          />{" "}
           Sensors
         </label>
         <br />
+
         <label>
           <input
             type="checkbox"
@@ -156,10 +192,11 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, rings: e.target.checked })
             }
-          />
+          />{" "}
           Forecast / Traffic Rings
         </label>
         <br />
+
         <label>
           <input
             type="checkbox"
@@ -167,9 +204,10 @@ export default function CesiumMap() {
             onChange={(e) =>
               setLayers({ ...layers, fused: e.target.checked })
             }
-          />
+          />{" "}
           Fused Label
         </label>
+
         <div style={{ fontSize: 12, marginTop: 6 }}>
           Click anywhere on map
         </div>
