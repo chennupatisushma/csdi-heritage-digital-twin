@@ -5,7 +5,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const PORT = 4000;
+// ✅ FIX: Render-compatible port
+const PORT = process.env.PORT || 4000;
 
 // ---------- helpers ----------
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -21,13 +22,11 @@ function mulberry32(seed) {
 }
 
 function seedFromLatLon(lat, lon) {
-  // make stable seed per location
   const a = Math.floor((lat + 90) * 10000);
   const b = Math.floor((lon + 180) * 10000);
   return (a * 73856093) ^ (b * 19349663);
 }
 
-// very rough distance (km) - good enough for demo
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -35,50 +34,42 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const dLon = toRad(lon2 - lon1);
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-// ---------- “CSDI-style” mock feeds ----------
+// ---------- mock CSDI feeds ----------
 function getHkoRefTemp(lat, lon, isoTime = new Date().toISOString()) {
-  // stable baseline depends on time + location (looks realistic)
   const t = new Date(isoTime);
   const hour = t.getUTCHours();
 
-  // daily cycle: 0..1
   const daily = 0.5 + 0.5 * Math.sin(((hour - 6) / 24) * Math.PI * 2);
-
-  // location gradient: slightly warmer near lower lat, + tiny lon effect
   const loc = (22.5 - lat) * 1.2 + (lon - 114.2) * 0.6;
-
   const base = 23.5 + daily * 2.2 - loc;
+
   return clamp(base, 18, 33);
 }
 
 function trafficIndexWithin10Km(lat, lon) {
-  // fake “road corridor” influence (for demo)
-  // traffic index 0..1, varies by location and time
   const hour = new Date().getUTCHours();
-  const rush = hour >= 0 && hour <= 3 ? 0.2 : hour >= 10 && hour <= 13 ? 0.8 : 0.5;
+  const rush =
+    hour >= 0 && hour <= 3 ? 0.2 : hour >= 10 && hour <= 13 ? 0.8 : 0.5;
 
-  // “coast/highway” band around lon ~114.17..114.20
-  const band = Math.exp(-Math.abs(lon - 114.18) * 20); // 0..1-ish
-  const idx = clamp(0.15 + 0.55 * band + 0.3 * rush, 0, 1);
-  return idx;
+  const band = Math.exp(-Math.abs(lon - 114.18) * 20);
+  return clamp(0.15 + 0.55 * band + 0.3 * rush, 0, 1);
 }
 
-// Generate sensors dynamically (NO hardcoding)
 function generateSensors(lat, lon) {
   const seed = seedFromLatLon(lat, lon);
   const rnd = mulberry32(seed);
-
-  // 5 sensors within ~1km
   const sensors = [];
+
   for (let i = 0; i < 5; i++) {
-    const dLat = (rnd() - 0.5) * 0.015; // ~ +/- 0.0075
+    const dLat = (rnd() - 0.5) * 0.015;
     const dLon = (rnd() - 0.5) * 0.015;
 
-    // temperature around HKO baseline + noise + micro-urban effect
     const ref = getHkoRefTemp(lat + dLat, lon + dLon);
     const traffic = trafficIndexWithin10Km(lat + dLat, lon + dLon);
     const temp = ref + 1.2 + traffic * 1.1 + (rnd() - 0.5) * 0.9;
@@ -94,20 +85,16 @@ function generateSensors(lat, lon) {
   return sensors;
 }
 
-// “ML forecast” (LSTM-like smoothing) – pitch-safe and stable
 function forecast30Min(fusedNow, trafficIndex) {
-  // more traffic => more warming drift
   const drift = 0.15 + trafficIndex * 0.25;
-  // smoothing
   const predicted = fusedNow * 0.92 + (fusedNow + drift) * 0.08;
   return Number(predicted.toFixed(2));
 }
 
 function fuseTemperature({ sensors, hkoRefTemp, trafficIndex }) {
   const sensorAvg =
-    sensors.reduce((sum, s) => sum + s.temp, 0) / Math.max(1, sensors.length);
+    sensors.reduce((sum, s) => sum + s.temp, 0) / sensors.length;
 
-  // fusion: sensors dominate + anchor to HKO, plus traffic heating
   const fused =
     0.68 * sensorAvg +
     0.25 * hkoRefTemp +
@@ -124,7 +111,6 @@ app.get("/api/fusion/predict", (req, res) => {
   const lat = Number(req.query.lat);
   const lon = Number(req.query.lon);
 
-  // Default: CUHK Inter-University Hall area
   const safeLat = Number.isFinite(lat) ? lat : 22.4180;
   const safeLon = Number.isFinite(lon) ? lon : 114.2106;
 
@@ -155,6 +141,7 @@ app.get("/api/fusion/predict", (req, res) => {
   });
 });
 
+// ✅ Render-safe listener
 app.listen(PORT, () => {
-  console.log(`✅ Backend running on http://localhost:${PORT}`);
+  console.log(`✅ Backend running on port ${PORT}`);
 });
