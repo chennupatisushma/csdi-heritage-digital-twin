@@ -1,67 +1,66 @@
 import { useEffect, useState } from "react";
-import CesiumMap from "./cesium/CesiumMap";
-import { API_BASE } from "./config";
+import CesiumMap from "./CesiumMap";
 
-function App() {
-  const [fusionData, setFusionData] = useState(null);
-  const [lat, setLat] = useState(22.337);
-  const [lon, setLon] = useState(114.172);
+const API = import.meta.env.VITE_BACKEND_URL;
 
-  const fetchFusion = async (latVal = lat, lonVal = lon) => {
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/fusion/predict?lat=${latVal}&lon=${lonVal}`
-      );
-      const data = await res.json();
-      setFusionData(data);
-    } catch (err) {
-      console.error("Fusion fetch failed:", err);
-    }
-  };
+export default function App() {
+  const [weather, setWeather] = useState({});
+  const [traffic, setTraffic] = useState({});
+  const [energy, setEnergy] = useState({});
+
+  const sensors = [
+    { lat: 22.4185, lon: 114.2065 },
+    { lat: 22.4181, lon: 114.2072 }
+  ];
 
   useEffect(() => {
-    fetchFusion();
+    Promise.all([
+      fetch(`${API}/api/weather`).then(r => r.json()),
+      fetch(`${API}/api/traffic`).then(r => r.json())
+    ]).then(([w, t]) => {
+      setWeather(w);
+      setTraffic(t);
+
+      // ENERGY + AUTOMATION LOGIC
+      const cooling =
+        w.temperature > 30 || w.humidity > 75 || t.level === "HIGH"
+          ? "HIGH"
+          : "MEDIUM";
+
+      const lighting =
+        w.solarRadiation > 600 ? "LOW" : "HIGH";
+
+      setEnergy({ cooling, lighting });
+    });
   }, []);
 
   return (
-    <div style={{ width: "100vw", height: "100vh" }}>
-      {/* UI overlay */}
-      <div
-        style={{
-          position: "absolute",
-          top: 10,
-          left: 10,
-          zIndex: 10,
-          background: "rgba(255,255,255,0.95)",
-          padding: 10,
-          borderRadius: 6,
-        }}
-      >
-        <label>
-          Latitude:
-          <input
-            value={lat}
-            onChange={(e) => setLat(e.target.value)}
-          />
-        </label>
+    <>
+      <CesiumMap sensors={sensors} onReady={() => {}} />
 
-        <label style={{ marginLeft: 10 }}>
-          Longitude:
-          <input
-            value={lon}
-            onChange={(e) => setLon(e.target.value)}
-          />
-        </label>
+      <div style={{
+        position: "absolute",
+        top: 20,
+        right: 20,
+        background: "#fff",
+        padding: 15,
+        width: 300
+      }}>
+        <h3>InnoPort Digital Twin</h3>
+        <p>🌡 Temp: {weather.temperature} °C</p>
+        <p>💧 Humidity: {weather.humidity}%</p>
+        <p>☀ Solar: {weather.solarRadiation} W/m²</p>
+        <p>🚗 Traffic: {traffic.level}</p>
 
-        <button onClick={() => fetchFusion()} style={{ marginLeft: 10 }}>
-          Update
-        </button>
+        <hr />
+
+        <p>💡 Lighting: {energy.lighting}</p>
+        <p>❄ Cooling Load: {energy.cooling}</p>
+
+        <small>
+          *Demo logic using CSDI + HKO data
+        </small>
       </div>
-
-      {/* FULLSCREEN CESIUM */}
-      <CesiumMap fusionData={fusionData} onMapClick={fetchFusion} />
-    </div>
+    </>
   );
 }
-
-export default App;
