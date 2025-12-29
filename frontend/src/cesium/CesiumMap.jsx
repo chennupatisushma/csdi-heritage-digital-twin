@@ -34,24 +34,24 @@ export default function CesiumMap({ onAnalytics }) {
 
     const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
-    handler.setInputAction((e) => {
-      const picked = viewer.scene.pick(e.position);
-      if (!picked || !picked.getProperty) return;
+   handler.setInputAction((e) => {
+  const picked = viewer.scene.pick(e.position);
+  if (!picked || !picked.getProperty) return;
 
-      const pos = viewer.scene.pickPosition(e.position);
-      if (!pos) return;
+  const pos = viewer.scene.pickPosition(e.position);
+  if (!pos) return;
 
-      const carto = Cesium.Cartographic.fromCartesian(pos);
+  const carto = Cesium.Cartographic.fromCartesian(pos);
 
-      onAnalytics({
-        buildingId:
-          picked.getProperty("id") ||
-          picked.getProperty("OBJECTID") ||
-          crypto.randomUUID(),
-        lat: Cesium.Math.toDegrees(carto.latitude),
-        lon: Cesium.Math.toDegrees(carto.longitude),
-      });
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  onAnalytics({
+    buildingId:
+      picked.getProperty("id") ||
+      picked.getProperty("OBJECTID") ||
+      crypto.randomUUID(),
+    lat: Cesium.Math.toDegrees(carto.latitude),
+    lon: Cesium.Math.toDegrees(carto.longitude),
+  });
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     return () => viewer.destroy();
   }, []);
